@@ -7,7 +7,7 @@ Public Module FlensVault
     End Function
 
     Public Function CheckInFile(value As String) As Boolean
-        Return ExecuteVaultCommand(value, "VaultCheckinTop", "Check In")
+         Return ExecuteVaultCommand(value, "VaultCheckinTop", "Check In")
     End Function
 
     'execute the Vault command
