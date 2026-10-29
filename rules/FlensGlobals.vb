@@ -1,13 +1,13 @@
 ﻿Imports Inventor
 
-'Vaak gebuikte berichten
 Public Module FlensGlobals
     Public ThisApp As Inventor.Application
     Public LogInfo As Action(Of String)
     Public LogError As Action(Of String)
 
-    Public Sub Init(app As Inventor.Application, info As Action(Of String), err As Action(Of String))
-        ThisApp = app : LogInfo = info : LogError = err
+    Public Sub InitLogger(info As Action(Of String), fout As Action(Of String))
+        LogInfo = info
+        LogError = fout
     End Sub
 
     Public Sub Show(bericht As String)

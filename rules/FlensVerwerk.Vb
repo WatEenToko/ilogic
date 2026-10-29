@@ -1,72 +1,76 @@
 ﻿Imports Inventor
 
 Public Module FlensVerwerk
-    't gene wat rondgestuurt word en de van buite berijkbaar
-    Public Function ProcessSeed(oAsm As AssemblyDocument, targetName As String,
-        templatePath As String, outputDir As String, model As Input,
-        isSquare As Boolean, ByRef occName As String, ByRef outputPath As String) As Boolean
-        'lengtes/gatdia aanpassen
-        Dim partLength As Double =
-            If(targetName = "HoekInY", model.InputLengte, model.InputBreedte)
-        Dim holeParameter As String =
-            If(isSquare OrElse targetName = "HoekInX", "d134", "d87")
-        'Naam output bestand + locatie
-        Dim configKey As String =
-            targetName & "_" & FileNumber(partLength) & "_" &
-            FileNumber(model.InputFlensHoogte) & "_" &
-            FileNumber(model.InputFlensBreedte) & "_" &
-            FileNumber(model.InputGatDia)
-        outputPath = System.IO.Path.Combine(outputDir, configKey & ".ipt")
-
-        'zoekt in de tekening binnen de pattern naar de onderdelen
-        Dim occ As ComponentOccurrence = VindOccurrence(oAsm, targetName)
-        If occ Is Nothing Then
-            FlensGlobals.Show("Occurrence niet gevonden: " & targetName)
-            ConfigurePart(outputPath, partLength, holeParameter, model)
+    Public Function ProcessSeed(taak As FlensTaak) As Boolean
+        BepaalAfmetingen(taak)
+        BepaalOutputPad(taak)
+        If Not VindOccurrence(taak) Then
+            FlensGlobals.Show("Occurrence niet gevonden: " & taak.Onderdeelnaam)
             Return False
         End If
-        occName = occ.Name
         Try
-            If Not System.IO.File.Exists(outputPath) Then
-                System.IO.File.Copy(templatePath, outputPath, False)
-                FlensGlobals.LogInfo("Nieuw IPT aangemaakt: " & outputPath)
-            Else
-                If Not CheckOutFile(outputPath) Then
-                    FlensGlobals.Show("Checkout mislukt: " & outputPath)
-                    Return False
-                End If
-            End If
+            If Not MaakOfCheckOut(taak) Then Return False
+            ConfigurePart(taak)
             Return True
         Catch ex As Exception
-            FlensGlobals.LogError("Fout bij " & targetName & ": " & ex.ToString())
-            FlensGlobals.Show("Fout bij " & targetName & ":" & vbCrLf & ex.Message)
+            FlensGlobals.LogError("Fout bij " & taak.Onderdeelnaam & ": " & ex.ToString())
+            FlensGlobals.Show("Fout bij " & taak.Onderdeelnaam & ":" & vbCrLf & ex.Message)
             Return False
         End Try
     End Function
-    'de sub functie van het daadwerkelijk zoeken
-    Private Function VindOccurrence(oAsm As AssemblyDocument, targetName As String) As ComponentOccurrence
-        For Each occ As ComponentOccurrence In oAsm.ComponentDefinition.Occurrences
-            If occ.Name = targetName OrElse occ.Name.StartsWith(targetName & ":") Then Return occ
+
+    Private Sub BepaalAfmetingen(taak As FlensTaak)
+        taak.PartLengte = If(taak.Onderdeelnaam = "HoekInY",
+            taak.Model.InputLengte, taak.Model.InputBreedte)
+        taak.GatParameter = If(taak.IsVierkant OrElse
+            taak.Onderdeelnaam = "HoekInX", "d134", "d87")
+    End Sub
+
+    Private Sub BepaalOutputPad(taak As FlensTaak)
+        Dim sleutel As String =
+            taak.Onderdeelnaam & "_" & Bestandsnummer(taak.PartLengte) & "_" &
+            Bestandsnummer(taak.Model.InputFlensHoogte) & "_" &
+            Bestandsnummer(taak.Model.InputFlensBreedte) & "_" &
+            Bestandsnummer(taak.Model.InputGatDia)
+        taak.OutputPad = System.IO.Path.Combine(taak.UitvoerMap, sleutel & ".ipt")
+    End Sub
+
+    Private Function VindOccurrence(taak As FlensTaak) As Boolean
+        For Each occ As ComponentOccurrence In taak.Asm.ComponentDefinition.Occurrences
+            If occ.Name = taak.Onderdeelnaam OrElse
+               occ.Name.StartsWith(taak.Onderdeelnaam & ":") Then
+                taak.OccNaam = occ.Name
+                Return True
+            End If
         Next
-        Return Nothing
+        Return False
     End Function
 
-    'subfunctie van het verwerken van het onderdeel
-    Private Sub ConfigurePart(outputPath As String, partLength As Double,
-        holeParameter As String, model As Input)
+    'Nieuw bestand: alleen kopiëren, GEEN checkout (staat nog niet in Vault).
+    'Bestaand bestand: eerst checkout.
+    Private Function MaakOfCheckOut(taak As FlensTaak) As Boolean
+        If Not System.IO.File.Exists(taak.OutputPad) Then
+            System.IO.File.Copy(taak.TemplatePad, taak.OutputPad, False)
+            FlensGlobals.LogInfo("Nieuw IPT aangemaakt: " & taak.OutputPad)
+            Return True
+        End If
+        If Not CheckOutFile(taak.OutputPad) Then
+            FlensGlobals.Show("Checkout mislukt: " & taak.OutputPad)
+            Return False
+        End If
+        Return True
+    End Function
+
+    Private Sub ConfigurePart(taak As FlensTaak)
         Dim partDoc As PartDocument = Nothing
         Try
-            'instellen van de part
-            partDoc = CType(FlensGlobals.ThisApp.Documents.Open(outputPath, False), PartDocument)
-            Dim partParams As Parameters = partDoc.ComponentDefinition.Parameters
-            SetMm(partParams, "LengteInw", partLength)
-            SetMm(partParams, holeParameter, model.InputGatDia)
-            SetMm(partParams, "d23", model.InputFlensHoogte)
-            SetMm(partParams, "d24", model.InputFlensBreedte)
-            ControleerReadOnly(outputPath)
+            partDoc = CType(
+                FlensGlobals.ThisApp.Documents.Open(taak.OutputPad, False), PartDocument)
+            StelParametersIn(partDoc, taak)
+            ControleerReadOnly(taak.OutputPad)
             partDoc.Update()
             partDoc.Save()
-            FlensGlobals.LogInfo("Opgeslagen: " & outputPath)
+            FlensGlobals.LogInfo("Opgeslagen: " & taak.OutputPad)
             partDoc.Close(True)
         Catch
             If partDoc IsNot Nothing Then
@@ -75,18 +79,26 @@ Public Module FlensVerwerk
             Throw
         End Try
     End Sub
-    'TODO: PUNT COMMA CONVERT ERROR? EU/US? 1,2 1.2?
-    Private Sub SetMm(partParams As Parameters, parameterName As String, value As Double)
-        partParams.Item(parameterName).Expression = FileNumber(value) & " mm"
+
+    Private Sub StelParametersIn(partDoc As PartDocument, taak As FlensTaak)
+        Dim p As Parameters = partDoc.ComponentDefinition.Parameters
+        Dim m As Input = taak.Model
+        SetMm(p, New ParamWaarde("LengteInw", taak.PartLengte))
+        SetMm(p, New ParamWaarde(taak.GatParameter, m.InputGatDia))
+        SetMm(p, New ParamWaarde("d23", m.InputFlensHoogte))
+        SetMm(p, New ParamWaarde("d24", m.InputFlensBreedte))
     End Sub
-    
-    'readonly errors verhelpen
-    Private Sub ControleerReadOnly(outputPath As String)
-        If Not System.IO.File.Exists(outputPath) Then Return
-        Dim attrs As System.IO.FileAttributes = System.IO.File.GetAttributes(outputPath)
+
+    'Gebruikt MmTekst (huidige cultuur): 12,5 mm op NL-systemen
+    Private Sub SetMm(partParams As Parameters, pv As ParamWaarde)
+        partParams.Item(pv.Naam).Expression = MmTekst(pv.Waarde)
+    End Sub
+
+    Private Sub ControleerReadOnly(bestand As String)
+        If Not System.IO.File.Exists(bestand) Then Return
+        Dim attrs As System.IO.FileAttributes = System.IO.File.GetAttributes(bestand)
         If (attrs And System.IO.FileAttributes.ReadOnly) <> 0 Then
-            Throw New System.IO.IOException(
-                "Het IPT-bestand is read-only. Controleer de Vault-status: " & outputPath)
+            Throw New System.IO.IOException("Het IPT-bestand is read-only: " & bestand)
         End If
     End Sub
 End Module

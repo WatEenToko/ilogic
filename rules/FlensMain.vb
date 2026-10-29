@@ -1,45 +1,51 @@
-﻿Imports Inventor
-
-'AddVbFile "L:\CAD_Conf2025\Inventor 2025\Design Data\iLogic\Flenzen\FlensModel.vb"
-AddVbFile "L:\CAD_Conf2025\Inventor 2025\Design Data\iLogic\Flenzen\FlensGlobals.vb"
-AddVbFile "L:\CAD_Conf2025\Inventor 2025\Design Data\iLogic\Flenzen\FlensModel.vb"
-AddVbFile "L:\CAD_Conf2025\Inventor 2025\Design Data\iLogic\Flenzen\FlensPaden.vb"
-AddVbFile "L:\CAD_Conf2025\Inventor 2025\Design Data\iLogic\Flenzen\FlensVerwerk.vb"
-AddVbFile "L:\CAD_Conf2025\Inventor 2025\Design Data\iLogic\Flenzen\FlensVault.vb"
+﻿AddVbFile "L:\CAD_Conf2025\Inventor 2025\Design Data\iLogic\Flenzen\V2\ilogic\rules\FlensModel.vb"
+AddVbFile "L:\CAD_Conf2025\Inventor 2025\Design Data\iLogic\Flenzen\V2\ilogic\rules\FlensGlobals.vb"
+AddVbFile "L:\CAD_Conf2025\Inventor 2025\Design Data\iLogic\Flenzen\V2\ilogic\rules\FlensPaden.vb"
+AddVbFile "L:\CAD_Conf2025\Inventor 2025\Design Data\iLogic\Flenzen\V2\ilogic\rules\FlensVerwerk.vb"
+AddVbFile "L:\CAD_Conf2025\Inventor 2025\Design Data\iLogic\Flenzen\V2\ilogic\rules\FlensVault.vb"
 'AddVbFile "L:\CAD_Conf2025\Inventor 2025\Design Data\iLogic\Flenzen\FlensIsah.vb"
 
 Sub Main()
-    'paden fixen voor OOP progammering
-    FlensGlobals.Init(ThisApplication, AddressOf Logger.Info, AddressOf Logger.Error)
-    'model checken
+    'App en logging doorgeven aan de modules
+    FlensGlobals.ThisApp = ThisApplication
+    FlensGlobals.InitLogger(AddressOf Logger.Info, AddressOf Logger.Error)
+
+    'Inputparameters uitlezen (form/document)
     Dim model As New Input With {
-        .InputLengte = Parameter("InputLengte"), 
+        .InputLengte = Parameter("InputLengte"),
         .InputBreedte = Parameter("InputBreedte"),
-        .InputFlensHoogte = Parameter("InputFlensHoogte"), 
+        .InputFlensHoogte = Parameter("InputFlensHoogte"),
         .InputFlensBreedte = Parameter("InputFlensBreedte"),
         .InputGatDia = Parameter("InputGatDia")}
     If Not model.IsValid Then
-        Logger.Info("breedte = " & model.InputBreedte & " Lengte = " & model.InputLengte & " Gat dia = " & model.InputGatDia)
-        FlensGlobals.Show("Vul alle afmetingen correct in.") : Return
+        FlensGlobals.Show("Vul alle afmetingen correct in.")
+        Return
     End If
-    'paden doorgeven
+
+    'Paden controleren
     Dim paden As New FlensPaden()
     If Not paden.Validate(model) Then Return
 
-    'iam aanpassen
-    Dim oAsm As AssemblyDocument = CType(ThisDoc.Document, AssemblyDocument)
-    Dim occName As String, outputPath As String
-    'uitwisselingen
+    'Taak opbouwen en verwerken
+    Dim taak As New FlensTaak With {
+        .Asm = CType(ThisDoc.Document, AssemblyDocument),
+        .Model = model,
+        .UitvoerMap = paden.OutputDir,
+        .IsVierkant = model.IsVierkant}
     If model.IsVierkant Then
-        If Not ProcessSeed(oAsm, "HoekInY", paden.TemplateX, paden.OutputDir, model, True, occName, outputPath) Then Return
-        Component.Replace(occName, outputPath, False) : InventorVb.DocumentUpdate()
-        If Not ProcessSeed(oAsm, "HoekInX", paden.TemplateX, paden.OutputDir, model, True, occName, outputPath) Then Return
-        Component.Replace(occName, outputPath, False) : InventorVb.DocumentUpdate()
+        taak.Start("HoekInY", paden.TemplateX)
+        If Not ProcessSeed(taak) Then Return
+        VervangComponent(taak)
+        taak.Start("HoekInX", paden.TemplateX)
+        If Not ProcessSeed(taak) Then Return
+        VervangComponent(taak)
     Else
-        If Not ProcessSeed(oAsm, "HoekInY", paden.TemplateY, paden.OutputDir, model, False, occName, outputPath) Then Return
-        Component.Replace(occName, outputPath, False) : InventorVb.DocumentUpdate()
-        If Not ProcessSeed(oAsm, "HoekInX", paden.TemplateX, paden.OutputDir, model, False, occName, outputPath) Then Return
-        Component.Replace(occName, outputPath, False) : InventorVb.DocumentUpdate()
+        taak.Start("HoekInY", paden.TemplateY)
+        If Not ProcessSeed(taak) Then Return
+        VervangComponent(taak)
+        taak.Start("HoekInX", paden.TemplateX)
+        If Not ProcessSeed(taak) Then Return
+        VervangComponent(taak)
     End If
 
     'If Not SynchroniseerIsah(ThisDoc.Document) Then
@@ -48,4 +54,9 @@ Sub Main()
     InventorVb.DocumentUpdate()
     iLogicVb.UpdateWhenDone = True
     FlensGlobals.Show("De componenten zijn verwerkt.")
+End Sub
+
+Sub VervangComponent(taak As FlensTaak)
+    Component.Replace(taak.OccNaam, taak.OutputPad, False)
+    InventorVb.DocumentUpdate()
 End Sub
