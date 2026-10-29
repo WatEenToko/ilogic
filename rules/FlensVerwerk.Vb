@@ -38,7 +38,7 @@ Public Module FlensVerwerk
     Private Function FindOccurrence(task As FlangeTask) As Boolean
         For Each occ As ComponentOccurrence In task.Asm.ComponentDefinition.Occurrences
             If occ.Name = task.PartName OrElse
-               occ.Name.StartsWith(task.PartName & ":") Then
+                occ.Name.StartsWith(task.PartName & ":") Then
                 task.OccurrenceName = occ.Name
                 Return True
             End If
