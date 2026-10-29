@@ -1,72 +1,79 @@
-﻿Imports Inventor
+Imports Inventor
 
 Public Module FlensVerwerk
-    't gene wat rondgestuurt word en de van buite berijkbaar
-    Public Function ProcessSeed(oAsm As AssemblyDocument, targetName As String,
-        templatePath As String, outputDir As String, model As Input,
-        isSquare As Boolean, ByRef occName As String, ByRef outputPath As String) As Boolean
-        'lengtes/gatdia aanpassen
-        Dim partLength As Double =
-            If(targetName = "HoekInY", model.InputLengte, model.InputBreedte)
-        Dim holeParameter As String =
-            If(isSquare OrElse targetName = "HoekInX", "d134", "d87")
-        'Naam output bestand + locatie
-        Dim configKey As String =
-            targetName & "_" & FileNumber(partLength) & "_" &
-            FileNumber(model.InputFlensHoogte) & "_" &
-            FileNumber(model.InputFlensBreedte) & "_" &
-            FileNumber(model.InputGatDia)
-        outputPath = System.IO.Path.Combine(outputDir, configKey & ".ipt")
-
-        'zoekt in de tekening binnen de pattern naar de onderdelen
-        Dim occ As ComponentOccurrence = VindOccurrence(oAsm, targetName)
-        If occ Is Nothing Then
-            FlensGlobals.Show("Occurrence niet gevonden: " & targetName)
-            ConfigurePart(outputPath, partLength, holeParameter, model)
+    Public Function ProcessSeed(task As FlangeTask) As Boolean
+        DetermineDimensions(task)
+        DetermineOutputPath(task)
+        If Not FindOccurrence(task) Then
+            FlensGlobals.Show("Occurrence not found: " & task.PartName)
             Return False
         End If
-        occName = occ.Name
         Try
-            If Not System.IO.File.Exists(outputPath) Then
-                System.IO.File.Copy(templatePath, outputPath, False)
-                FlensGlobals.LogInfo("Nieuw IPT aangemaakt: " & outputPath)
-            Else
-                If Not CheckOutFile(outputPath) Then
-                    FlensGlobals.Show("Checkout mislukt: " & outputPath)
-                    Return False
-                End If
-            End If
+            If Not CreateOrCheckOut(task) Then Return False
+            ConfigurePart(task)
             Return True
         Catch ex As Exception
-            FlensGlobals.LogError("Fout bij " & targetName & ": " & ex.ToString())
-            FlensGlobals.Show("Fout bij " & targetName & ":" & vbCrLf & ex.Message)
+            FlensGlobals.LogError("Error for " & task.PartName & ": " & ex.ToString())
+            FlensGlobals.Show("Error for " & task.PartName & ":" & vbCrLf & ex.Message)
             Return False
         End Try
     End Function
-    'de sub functie van het daadwerkelijk zoeken
-    Private Function VindOccurrence(oAsm As AssemblyDocument, targetName As String) As ComponentOccurrence
-        For Each occ As ComponentOccurrence In oAsm.ComponentDefinition.Occurrences
-            If occ.Name = targetName OrElse occ.Name.StartsWith(targetName & ":") Then Return occ
+
+    Private Sub DetermineDimensions(task As FlangeTask)
+        task.PartLength = If(task.PartName = "HoekInY",
+            task.Model.InputLength, task.Model.InputWidth)
+        task.HoleParameter = If(task.IsSquare OrElse
+            task.PartName = "HoekInX", "d134", "d87")
+    End Sub
+
+    Private Sub DetermineOutputPath(task As FlangeTask)
+        Dim key As String =
+            task.PartName & "_" & FileNumber(task.PartLength) & "_" &
+            FileNumber(task.Model.InputFlangeHeight) & "_" &
+            FileNumber(task.Model.InputFlangeWidth) & "_" &
+            FileNumber(task.Model.InputHoleDiameter)
+        task.OutputPath = System.IO.Path.Combine(task.OutputFolder, key & ".ipt")
+    End Sub
+
+    Private Function FindOccurrence(task As FlangeTask) As Boolean
+        For Each occ As ComponentOccurrence In task.Asm.ComponentDefinition.Occurrences
+            If occ.Name = task.PartName OrElse
+                occ.Name.StartsWith(task.PartName & ":") Then
+                task.OccurrenceName = occ.Name
+                Return True
+            End If
         Next
-        Return Nothing
+        Return False
     End Function
 
-    'subfunctie van het verwerken van het onderdeel
-    Private Sub ConfigurePart(outputPath As String, partLength As Double,
-        holeParameter As String, model As Input)
+    'New file: copy directly and do not check it out from Vault.
+    'This file has not been checked in yet, so Vault checkout is not valid.
+    'Existing file: check out first.
+    Private Function CreateOrCheckOut(task As FlangeTask) As Boolean
+        If Not System.IO.File.Exists(task.OutputPath) Then
+            System.IO.File.Copy(task.TemplatePath, task.OutputPath, False)
+            RemoveReadOnlyFlag(task.OutputPath)
+            FlensGlobals.LogInfo("New IPT created: " & task.OutputPath)
+            Return True
+        End If
+
+        If Not CheckOutFile(task.OutputPath) Then
+            FlensGlobals.Show("Checkout failed: " & task.OutputPath)
+            Return False
+        End If
+        Return True
+    End Function
+
+    Private Sub ConfigurePart(task As FlangeTask)
         Dim partDoc As PartDocument = Nothing
         Try
-            'instellen van de part
-            partDoc = CType(FlensGlobals.ThisApp.Documents.Open(outputPath, False), PartDocument)
-            Dim partParams As Parameters = partDoc.ComponentDefinition.Parameters
-            SetMm(partParams, "LengteInw", partLength)
-            SetMm(partParams, holeParameter, model.InputGatDia)
-            SetMm(partParams, "d23", model.InputFlensHoogte)
-            SetMm(partParams, "d24", model.InputFlensBreedte)
-            ControleerReadOnly(outputPath)
+            partDoc = CType(
+                FlensGlobals.ThisApp.Documents.Open(task.OutputPath, False), PartDocument)
+            SetParametersIn(partDoc, task)
+            CheckReadOnly(task.OutputPath)
             partDoc.Update()
             partDoc.Save()
-            FlensGlobals.LogInfo("Opgeslagen: " & outputPath)
+            FlensGlobals.LogInfo("Saved: " & task.OutputPath)
             partDoc.Close(True)
         Catch
             If partDoc IsNot Nothing Then
@@ -75,18 +82,34 @@ Public Module FlensVerwerk
             Throw
         End Try
     End Sub
-    'TODO: PUNT COMMA CONVERT ERROR? EU/US? 1,2 1.2?
-    Private Sub SetMm(partParams As Parameters, parameterName As String, value As Double)
-        partParams.Item(parameterName).Expression = FileNumber(value) & " mm"
+
+    Private Sub SetParametersIn(partDoc As PartDocument, task As FlangeTask)
+        Dim parameters As Parameters = partDoc.ComponentDefinition.Parameters
+        Dim model As Input = task.Model
+        SetMm(parameters, New ParameterValue("LengteInw", task.PartLength))
+        SetMm(parameters, New ParameterValue(task.HoleParameter, model.InputHoleDiameter))
+        SetMm(parameters, New ParameterValue("d23", model.InputFlangeHeight))
+        SetMm(parameters, New ParameterValue("d24", model.InputFlangeWidth))
     End Sub
-    
-    'readonly errors verhelpen
-    Private Sub ControleerReadOnly(outputPath As String)
-        If Not System.IO.File.Exists(outputPath) Then Return
-        Dim attrs As System.IO.FileAttributes = System.IO.File.GetAttributes(outputPath)
-        If (attrs And System.IO.FileAttributes.ReadOnly) <> 0 Then
-            Throw New System.IO.IOException(
-                "Het IPT-bestand is read-only. Controleer de Vault-status: " & outputPath)
+
+    'Uses MmText (current culture): 12,5 mm on Dutch systems
+    Private Sub SetMm(partParams As Parameters, pv As ParameterValue)
+        partParams.Item(pv.Name).Expression = MmText(pv.Value)
+    End Sub
+
+    Private Sub CheckReadOnly(filePath As String)
+        If Not System.IO.File.Exists(filePath) Then Return
+        Dim attributes As System.IO.FileAttributes = System.IO.File.GetAttributes(filePath)
+        If (attributes And System.IO.FileAttributes.ReadOnly) <> 0 Then
+            Throw New System.IO.IOException("The IPT file is read-only: " & filePath)
+        End If
+    End Sub
+
+    Private Sub RemoveReadOnlyFlag(filePath As String)
+        If Not System.IO.File.Exists(filePath) Then Return
+        Dim attributes As System.IO.FileAttributes = System.IO.File.GetAttributes(filePath)
+        If (attributes And System.IO.FileAttributes.ReadOnly) <> 0 Then
+            System.IO.File.SetAttributes(filePath, attributes And Not System.IO.FileAttributes.ReadOnly)
         End If
     End Sub
 End Module
