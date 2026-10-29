@@ -46,14 +46,17 @@ Public Module FlensVerwerk
         Return False
     End Function
 
-    'New file: copy only; no checkout (not yet in Vault)
+    'New file: copy directly and do not check it out from Vault.
+    'This file has not been checked in yet, so Vault checkout is not valid.
     'Existing file: check out first.
     Private Function CreateOrCheckOut(task As FlangeTask) As Boolean
         If Not System.IO.File.Exists(task.OutputPath) Then
             System.IO.File.Copy(task.TemplatePath, task.OutputPath, False)
+            RemoveReadOnlyFlag(task.OutputPath)
             FlensGlobals.LogInfo("New IPT created: " & task.OutputPath)
             Return True
         End If
+
         If Not CheckOutFile(task.OutputPath) Then
             FlensGlobals.Show("Checkout failed: " & task.OutputPath)
             Return False
@@ -99,6 +102,14 @@ Public Module FlensVerwerk
         Dim attributes As System.IO.FileAttributes = System.IO.File.GetAttributes(filePath)
         If (attributes And System.IO.FileAttributes.ReadOnly) <> 0 Then
             Throw New System.IO.IOException("The IPT file is read-only: " & filePath)
+        End If
+    End Sub
+
+    Private Sub RemoveReadOnlyFlag(filePath As String)
+        If Not System.IO.File.Exists(filePath) Then Return
+        Dim attributes As System.IO.FileAttributes = System.IO.File.GetAttributes(filePath)
+        If (attributes And System.IO.FileAttributes.ReadOnly) <> 0 Then
+            System.IO.File.SetAttributes(filePath, attributes And Not System.IO.FileAttributes.ReadOnly)
         End If
     End Sub
 End Module
