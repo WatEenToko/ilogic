@@ -1,4 +1,4 @@
-﻿AddVbFile "L:\CAD_Conf2025\Inventor 2025\Design Data\iLogic\Flenzen\V2\ilogic\rules\FlensModel.vb"
+AddVbFile "L:\CAD_Conf2025\Inventor 2025\Design Data\iLogic\Flenzen\V2\ilogic\rules\FlensModel.vb"
 AddVbFile "L:\CAD_Conf2025\Inventor 2025\Design Data\iLogic\Flenzen\V2\ilogic\rules\FlensGlobals.vb"
 AddVbFile "L:\CAD_Conf2025\Inventor 2025\Design Data\iLogic\Flenzen\V2\ilogic\rules\FlensPaden.vb"
 AddVbFile "L:\CAD_Conf2025\Inventor 2025\Design Data\iLogic\Flenzen\V2\ilogic\rules\FlensVerwerk.vb"
@@ -6,57 +6,57 @@ AddVbFile "L:\CAD_Conf2025\Inventor 2025\Design Data\iLogic\Flenzen\V2\ilogic\ru
 'AddVbFile "L:\CAD_Conf2025\Inventor 2025\Design Data\iLogic\Flenzen\FlensIsah.vb"
 
 Sub Main()
-    'App en logging doorgeven aan de modules
+    'Pass the application and logging to the modules
     FlensGlobals.ThisApp = ThisApplication
     FlensGlobals.InitLogger(AddressOf Logger.Info, AddressOf Logger.Error)
 
-    'Inputparameters uitlezen (form/document)
+    'Read input parameters from the form or document
     Dim model As New Input With {
-        .InputLengte = Parameter("InputLengte"),
-        .InputBreedte = Parameter("InputBreedte"),
-        .InputFlensHoogte = Parameter("InputFlensHoogte"),
-        .InputFlensBreedte = Parameter("InputFlensBreedte"),
-        .InputGatDia = Parameter("InputGatDia")}
+        .InputLength = Parameter("InputLengte"),
+        .InputWidth = Parameter("InputBreedte"),
+        .InputFlangeHeight = Parameter("InputFlensHoogte"),
+        .InputFlangeWidth = Parameter("InputFlensBreedte"),
+        .InputHoleDiameter = Parameter("InputGatDia")}
     If Not model.IsValid Then
-        FlensGlobals.Show("Vul alle afmetingen correct in.")
+        FlensGlobals.Show("Please enter all dimensions correctly.")
         Return
     End If
 
-    'Paden controleren
-    Dim paden As New FlensPaden()
-    If Not paden.Validate(model) Then Return
+    'Validate the paths
+    Dim paths As New FlensPaden()
+    If Not paths.Validate(model) Then Return
 
-    'Taak opbouwen en verwerken
-    Dim taak As New FlensTaak With {
+    'Build and process the task
+    Dim task As New FlangeTask With {
         .Asm = CType(ThisDoc.Document, AssemblyDocument),
         .Model = model,
-        .UitvoerMap = paden.OutputDir,
-        .IsVierkant = model.IsVierkant}
-    If model.IsVierkant Then
-        taak.Start("HoekInY", paden.TemplateX)
-        If Not ProcessSeed(taak) Then Return
-        VervangComponent(taak)
-        taak.Start("HoekInX", paden.TemplateX)
-        If Not ProcessSeed(taak) Then Return
-        VervangComponent(taak)
+        .OutputFolder = paths.OutputDir,
+        .IsSquare = model.IsSquare}
+    If model.IsSquare Then
+        task.Start("HoekInY", paths.TemplateX)
+        If Not ProcessSeed(task) Then Return
+        ReplaceComponent(task)
+        task.Start("HoekInX", paths.TemplateX)
+        If Not ProcessSeed(task) Then Return
+        ReplaceComponent(task)
     Else
-        taak.Start("HoekInY", paden.TemplateY)
-        If Not ProcessSeed(taak) Then Return
-        VervangComponent(taak)
-        taak.Start("HoekInX", paden.TemplateX)
-        If Not ProcessSeed(taak) Then Return
-        VervangComponent(taak)
+        task.Start("HoekInY", paths.TemplateY)
+        If Not ProcessSeed(task) Then Return
+        ReplaceComponent(task)
+        task.Start("HoekInX", paths.TemplateX)
+        If Not ProcessSeed(task) Then Return
+        ReplaceComponent(task)
     End If
 
     'If Not SynchroniseerIsah(ThisDoc.Document) Then
-    '    FlensGlobals.Show("IsahPrimKey kon niet worden bijgewerkt.") : Return
+    '    FlensGlobals.Show("IsahPrimKey could not be updated.") : Return
     'End If
     InventorVb.DocumentUpdate()
     iLogicVb.UpdateWhenDone = True
-    FlensGlobals.Show("De componenten zijn verwerkt.")
+    FlensGlobals.Show("The components have been processed.")
 End Sub
 
-Sub VervangComponent(taak As FlensTaak)
-    Component.Replace(taak.OccNaam, taak.OutputPad, False)
+Sub ReplaceComponent(task As FlangeTask)
+    Component.Replace(task.OccurrenceName, task.OutputPath, False)
     InventorVb.DocumentUpdate()
 End Sub

@@ -1,76 +1,76 @@
-﻿Imports Inventor
+Imports Inventor
 
 Public Module FlensVerwerk
-    Public Function ProcessSeed(taak As FlensTaak) As Boolean
-        BepaalAfmetingen(taak)
-        BepaalOutputPad(taak)
-        If Not VindOccurrence(taak) Then
-            FlensGlobals.Show("Occurrence niet gevonden: " & taak.Onderdeelnaam)
+    Public Function ProcessSeed(task As FlangeTask) As Boolean
+        DetermineDimensions(task)
+        DetermineOutputPath(task)
+        If Not FindOccurrence(task) Then
+            FlensGlobals.Show("Occurrence not found: " & task.PartName)
             Return False
         End If
         Try
-            If Not MaakOfCheckOut(taak) Then Return False
-            ConfigurePart(taak)
+            If Not CreateOrCheckOut(task) Then Return False
+            ConfigurePart(task)
             Return True
         Catch ex As Exception
-            FlensGlobals.LogError("Fout bij " & taak.Onderdeelnaam & ": " & ex.ToString())
-            FlensGlobals.Show("Fout bij " & taak.Onderdeelnaam & ":" & vbCrLf & ex.Message)
+            FlensGlobals.LogError("Error for " & task.PartName & ": " & ex.ToString())
+            FlensGlobals.Show("Error for " & task.PartName & ":" & vbCrLf & ex.Message)
             Return False
         End Try
     End Function
 
-    Private Sub BepaalAfmetingen(taak As FlensTaak)
-        taak.PartLengte = If(taak.Onderdeelnaam = "HoekInY",
-            taak.Model.InputLengte, taak.Model.InputBreedte)
-        taak.GatParameter = If(taak.IsVierkant OrElse
-            taak.Onderdeelnaam = "HoekInX", "d134", "d87")
+    Private Sub DetermineDimensions(task As FlangeTask)
+        task.PartLength = If(task.PartName = "HoekInY",
+            task.Model.InputLength, task.Model.InputWidth)
+        task.HoleParameter = If(task.IsSquare OrElse
+            task.PartName = "HoekInX", "d134", "d87")
     End Sub
 
-    Private Sub BepaalOutputPad(taak As FlensTaak)
-        Dim sleutel As String =
-            taak.Onderdeelnaam & "_" & Bestandsnummer(taak.PartLengte) & "_" &
-            Bestandsnummer(taak.Model.InputFlensHoogte) & "_" &
-            Bestandsnummer(taak.Model.InputFlensBreedte) & "_" &
-            Bestandsnummer(taak.Model.InputGatDia)
-        taak.OutputPad = System.IO.Path.Combine(taak.UitvoerMap, sleutel & ".ipt")
+    Private Sub DetermineOutputPath(task As FlangeTask)
+        Dim key As String =
+            task.PartName & "_" & FileNumber(task.PartLength) & "_" &
+            FileNumber(task.Model.InputFlangeHeight) & "_" &
+            FileNumber(task.Model.InputFlangeWidth) & "_" &
+            FileNumber(task.Model.InputHoleDiameter)
+        task.OutputPath = System.IO.Path.Combine(task.OutputFolder, key & ".ipt")
     End Sub
 
-    Private Function VindOccurrence(taak As FlensTaak) As Boolean
-        For Each occ As ComponentOccurrence In taak.Asm.ComponentDefinition.Occurrences
-            If occ.Name = taak.Onderdeelnaam OrElse
-               occ.Name.StartsWith(taak.Onderdeelnaam & ":") Then
-                taak.OccNaam = occ.Name
+    Private Function FindOccurrence(task As FlangeTask) As Boolean
+        For Each occ As ComponentOccurrence In task.Asm.ComponentDefinition.Occurrences
+            If occ.Name = task.PartName OrElse
+               occ.Name.StartsWith(task.PartName & ":") Then
+                task.OccurrenceName = occ.Name
                 Return True
             End If
         Next
         Return False
     End Function
 
-    'Nieuw bestand: alleen kopiëren, GEEN checkout (staat nog niet in Vault).
-    'Bestaand bestand: eerst checkout.
-    Private Function MaakOfCheckOut(taak As FlensTaak) As Boolean
-        If Not System.IO.File.Exists(taak.OutputPad) Then
-            System.IO.File.Copy(taak.TemplatePad, taak.OutputPad, False)
-            FlensGlobals.LogInfo("Nieuw IPT aangemaakt: " & taak.OutputPad)
+    'New file: copy only; no checkout (not yet in Vault)
+    'Existing file: check out first.
+    Private Function CreateOrCheckOut(task As FlangeTask) As Boolean
+        If Not System.IO.File.Exists(task.OutputPath) Then
+            System.IO.File.Copy(task.TemplatePath, task.OutputPath, False)
+            FlensGlobals.LogInfo("New IPT created: " & task.OutputPath)
             Return True
         End If
-        If Not CheckOutFile(taak.OutputPad) Then
-            FlensGlobals.Show("Checkout mislukt: " & taak.OutputPad)
+        If Not CheckOutFile(task.OutputPath) Then
+            FlensGlobals.Show("Checkout failed: " & task.OutputPath)
             Return False
         End If
         Return True
     End Function
 
-    Private Sub ConfigurePart(taak As FlensTaak)
+    Private Sub ConfigurePart(task As FlangeTask)
         Dim partDoc As PartDocument = Nothing
         Try
             partDoc = CType(
-                FlensGlobals.ThisApp.Documents.Open(taak.OutputPad, False), PartDocument)
-            StelParametersIn(partDoc, taak)
-            ControleerReadOnly(taak.OutputPad)
+                FlensGlobals.ThisApp.Documents.Open(task.OutputPath, False), PartDocument)
+            SetParametersIn(partDoc, task)
+            CheckReadOnly(task.OutputPath)
             partDoc.Update()
             partDoc.Save()
-            FlensGlobals.LogInfo("Opgeslagen: " & taak.OutputPad)
+            FlensGlobals.LogInfo("Saved: " & task.OutputPath)
             partDoc.Close(True)
         Catch
             If partDoc IsNot Nothing Then
@@ -80,25 +80,25 @@ Public Module FlensVerwerk
         End Try
     End Sub
 
-    Private Sub StelParametersIn(partDoc As PartDocument, taak As FlensTaak)
-        Dim p As Parameters = partDoc.ComponentDefinition.Parameters
-        Dim m As Input = taak.Model
-        SetMm(p, New ParamWaarde("LengteInw", taak.PartLengte))
-        SetMm(p, New ParamWaarde(taak.GatParameter, m.InputGatDia))
-        SetMm(p, New ParamWaarde("d23", m.InputFlensHoogte))
-        SetMm(p, New ParamWaarde("d24", m.InputFlensBreedte))
+    Private Sub SetParametersIn(partDoc As PartDocument, task As FlangeTask)
+        Dim parameters As Parameters = partDoc.ComponentDefinition.Parameters
+        Dim model As Input = task.Model
+        SetMm(parameters, New ParameterValue("LengteInw", task.PartLength))
+        SetMm(parameters, New ParameterValue(task.HoleParameter, model.InputHoleDiameter))
+        SetMm(parameters, New ParameterValue("d23", model.InputFlangeHeight))
+        SetMm(parameters, New ParameterValue("d24", model.InputFlangeWidth))
     End Sub
 
-    'Gebruikt MmTekst (huidige cultuur): 12,5 mm op NL-systemen
-    Private Sub SetMm(partParams As Parameters, pv As ParamWaarde)
-        partParams.Item(pv.Naam).Expression = MmTekst(pv.Waarde)
+    'Uses MmText (current culture): 12,5 mm on Dutch systems
+    Private Sub SetMm(partParams As Parameters, pv As ParameterValue)
+        partParams.Item(pv.Name).Expression = MmText(pv.Value)
     End Sub
 
-    Private Sub ControleerReadOnly(bestand As String)
-        If Not System.IO.File.Exists(bestand) Then Return
-        Dim attrs As System.IO.FileAttributes = System.IO.File.GetAttributes(bestand)
-        If (attrs And System.IO.FileAttributes.ReadOnly) <> 0 Then
-            Throw New System.IO.IOException("Het IPT-bestand is read-only: " & bestand)
+    Private Sub CheckReadOnly(filePath As String)
+        If Not System.IO.File.Exists(filePath) Then Return
+        Dim attributes As System.IO.FileAttributes = System.IO.File.GetAttributes(filePath)
+        If (attributes And System.IO.FileAttributes.ReadOnly) <> 0 Then
+            Throw New System.IO.IOException("The IPT file is read-only: " & filePath)
         End If
     End Sub
 End Module
