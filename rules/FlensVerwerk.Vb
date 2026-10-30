@@ -4,10 +4,12 @@ Public Module FlensVerwerk
     Public Function ProcessSeed(task As FlangeTask) As Boolean
         DetermineDimensions(task)
         DetermineOutputPath(task)
+
         If Not FindOccurrence(task) Then
             FlensGlobals.Show("Occurrence not found: " & task.PartName)
             Return False
         End If
+
         Try
             If Not CreateOrCheckOut(task) Then Return False
             ConfigurePart(task)
@@ -22,33 +24,38 @@ Public Module FlensVerwerk
     Private Sub DetermineDimensions(task As FlangeTask)
         task.PartLength = If(task.PartName = "HoekInY",
             task.Model.InputLength, task.Model.InputWidth)
-        task.HoleParameter = If(task.IsSquare OrElse
-            task.PartName = "HoekInX", "d134", "d87")
+
+        task.HoleParameter = If(task.IsSquare OrElse task.PartName = "HoekInX",
+            "d134", "d87")
     End Sub
 
     Private Sub DetermineOutputPath(task As FlangeTask)
         Dim key As String =
-            task.PartName & "_" & FileNumber(task.PartLength) & "_" &
-            FileNumber(task.Model.InputFlangeHeight) & "_" &
-            FileNumber(task.Model.InputFlangeWidth) & "_" &
-            FileNumber(task.Model.InputHoleDiameter)
+            task.PartName & "_" &
+            FormatDimension(task.Model.InputLength) & "x" &
+            FormatDimension(task.Model.InputWidth) & "_" &
+            FormatDimension(task.Model.InputFlangeHeight) & "_" &
+            FormatDimension(task.Model.InputFlangeWidth) & "_" &
+            FormatDimension(task.Model.InputHoleDiameter)
+
         task.OutputPath = System.IO.Path.Combine(task.OutputFolder, key & ".ipt")
     End Sub
 
+    Private Function FormatDimension(value As Double) As String
+        Return value.ToString(System.Globalization.CultureInfo.InvariantCulture)
+    End Function
+
     Private Function FindOccurrence(task As FlangeTask) As Boolean
         For Each occ As ComponentOccurrence In task.Asm.ComponentDefinition.Occurrences
-            If occ.Name = task.PartName OrElse
-                occ.Name.StartsWith(task.PartName & ":") Then
+            If occ.Name = task.PartName OrElse occ.Name.StartsWith(task.PartName & ":") Then
                 task.OccurrenceName = occ.Name
                 Return True
             End If
         Next
+
         Return False
     End Function
 
-    'New file: copy directly and do not check it out from Vault.
-    'This file has not been checked in yet, so Vault checkout is not valid.
-    'Existing file: check out first.
     Private Function CreateOrCheckOut(task As FlangeTask) As Boolean
         If Not System.IO.File.Exists(task.OutputPath) Then
             System.IO.File.Copy(task.TemplatePath, task.OutputPath, False)
@@ -61,14 +68,15 @@ Public Module FlensVerwerk
             FlensGlobals.Show("Checkout failed: " & task.OutputPath)
             Return False
         End If
+
         Return True
     End Function
 
     Private Sub ConfigurePart(task As FlangeTask)
         Dim partDoc As PartDocument = Nothing
+
         Try
-            partDoc = CType(
-                FlensGlobals.ThisApp.Documents.Open(task.OutputPath, False), PartDocument)
+            partDoc = CType(FlensGlobals.ThisApp.Documents.Open(task.OutputPath, False), PartDocument)
             SetParametersIn(partDoc, task)
             CheckReadOnly(task.OutputPath)
             partDoc.Update()
@@ -77,7 +85,10 @@ Public Module FlensVerwerk
             partDoc.Close(True)
         Catch
             If partDoc IsNot Nothing Then
-                Try : partDoc.Close(False) : Catch : End Try
+                Try
+                    partDoc.Close(False)
+                Catch
+                End Try
             End If
             Throw
         End Try
@@ -85,14 +96,13 @@ Public Module FlensVerwerk
 
     Private Sub SetParametersIn(partDoc As PartDocument, task As FlangeTask)
         Dim parameters As Parameters = partDoc.ComponentDefinition.Parameters
-        Dim model As Input = task.Model
+
         SetMm(parameters, New ParameterValue("LengteInw", task.PartLength))
-        SetMm(parameters, New ParameterValue(task.HoleParameter, model.InputHoleDiameter))
-        SetMm(parameters, New ParameterValue("d23", model.InputFlangeHeight))
-        SetMm(parameters, New ParameterValue("d24", model.InputFlangeWidth))
+        SetMm(parameters, New ParameterValue(task.HoleParameter, task.Model.InputHoleDiameter))
+        SetMm(parameters, New ParameterValue("d23", task.Model.InputFlangeHeight))
+        SetMm(parameters, New ParameterValue("d24", task.Model.InputFlangeWidth))
     End Sub
 
-    'Uses MmText (current culture): 12,5 mm on Dutch systems
     Private Sub SetMm(partParams As Parameters, pv As ParameterValue)
         partParams.Item(pv.Name).Expression = MmText(pv.Value)
     End Sub
