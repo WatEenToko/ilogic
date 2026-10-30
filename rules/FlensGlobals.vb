@@ -1,5 +1,6 @@
 Imports Inventor
 
+'veel toegepasde functies
 Public Module FlensGlobals
     Public ThisApp As Inventor.Application
     Public LogInfo As Action(Of String)

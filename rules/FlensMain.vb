@@ -17,11 +17,13 @@ Sub Main()
         .InputHoleDiameter = Parameter("InputGatDia")
     }
 
+    'checken of alles in ingevult
     If Not model.IsValid Then
         FlensGlobals.Show("Please enter all dimensions correctly.")
         Return
     End If
 
+    'kijken of de mappen erzijn
     Dim paths As New FlensPaden()
     If Not paths.Validate(model) Then
         Return
@@ -30,29 +32,31 @@ Sub Main()
     Dim assemblyDoc As AssemblyDocument = CType(ThisDoc.Document, AssemblyDocument)
     Dim task As FlangeTask
 
+    'vierkant aansturing en rechthoek sturing
     If model.IsSquare Then
         task = CreateTask(assemblyDoc, model, paths.OutputDir, "HoekInY", paths.TemplateX)
-        If Not ProcessSeed(task) Then Return
+        If Not ProcessTask(task) Then Return
         ReplaceComponent(task)
 
         task = CreateTask(assemblyDoc, model, paths.OutputDir, "HoekInX", paths.TemplateX)
-        If Not ProcessSeed(task) Then Return
+        If Not ProcessTask(task) Then Return
         ReplaceComponent(task)
     Else
         task = CreateTask(assemblyDoc, model, paths.OutputDir, "HoekInY", paths.TemplateY)
-        If Not ProcessSeed(task) Then Return
+        If Not ProcessTask(task) Then Return
         ReplaceComponent(task)
 
         task = CreateTask(assemblyDoc, model, paths.OutputDir, "HoekInX", paths.TemplateX)
-        If Not ProcessSeed(task) Then Return
+        If Not ProcessTask(task) Then Return
         ReplaceComponent(task)
     End If
-
+    'opslaan verwerking in het part
     FlensSaveAssembly.SaveAssemblyCopy(assemblyDoc, paths.OutputDir, model)
 
     FlensGlobals.Show("The components have been processed.")
 End Sub
 
+'sturing naar de subs
 Private Function CreateTask(asm As AssemblyDocument,
                             model As Input,
                             outputFolder As String,
@@ -68,6 +72,7 @@ Private Function CreateTask(asm As AssemblyDocument,
     }
 End Function
 
+'vervangen component
 Sub ReplaceComponent(task As FlangeTask)
     Component.Replace(task.OccurrenceName, task.OutputPath, False)
 End Sub

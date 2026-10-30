@@ -1,7 +1,7 @@
 Imports Inventor
 
 Public Module FlensVerwerk
-    Public Function ProcessSeed(task As FlangeTask) As Boolean
+    Public Function ProcessTask(task As FlangeTask) As Boolean
         DetermineDimensions(task)
         DetermineOutputPath(task)
 
